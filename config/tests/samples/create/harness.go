@@ -622,7 +622,6 @@ func MaybeSkip(t *testing.T, name string, resources []*unstructured.Unstructured
 			case "certificatemanager.cnrm.cloud.google.com":
 				continue
 			}
-
 			switch gvk.GroupKind() {
 			case schema.GroupKind{Group: "", Kind: "Secret"}:
 
@@ -634,6 +633,7 @@ func MaybeSkip(t *testing.T, name string, resources []*unstructured.Unstructured
 			case schema.GroupKind{Group: "artifactregistry.cnrm.cloud.google.com", Kind: "ArtifactRegistryRepository"}:
 
 			case schema.GroupKind{Group: "bigquery.cnrm.cloud.google.com", Kind: "BigQueryDataset"}:
+			case schema.GroupKind{Group: "bigquery.cnrm.cloud.google.com", Kind: "BigQueryTable"}: 
 
 			case schema.GroupKind{Group: "bigqueryconnection.cnrm.cloud.google.com", Kind: "BigQueryConnectionConnection"}:
 

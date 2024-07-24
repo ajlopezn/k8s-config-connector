@@ -17,7 +17,6 @@ package mockbigquery
 import (
 	"context"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -37,7 +36,7 @@ type tablesServer struct {
 }
 
 func (s *tablesServer) GetTable(ctx context.Context, req *pb.GetTableRequest) (*pb.Table, error) {
-	name, err := s.buildTableName(req.GetProjectId(), req.GetTableId())
+	name, err := s.buildTableName(req.GetProjectId(), req.GetDatasetId(), req.GetTableId())
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +55,7 @@ func (s *tablesServer) GetTable(ctx context.Context, req *pb.GetTableRequest) (*
 }
 
 func (s *tablesServer) InsertTable(ctx context.Context, req *pb.InsertTableRequest) (*pb.Table, error) {
-	name, err := s.buildTableName(req.GetProjectId(), req.GetTable().GetTableReference().GetTableId())
+	name, err := s.buildTableName(req.GetProjectId(), req.GetDatasetId(), req.GetTable().GetTableReference().GetTableId())
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +73,7 @@ func (s *tablesServer) InsertTable(ctx context.Context, req *pb.InsertTableReque
 		obj.TableReference.ProjectId = req.ProjectId
 	}
 	obj.CreationTime = PtrTo(now.UnixMilli())
-	obj.LastModifiedTime = PtrTo(now.UnixMilli())
+	obj.LastModifiedTime = PtrTo(uint64(now.UnixMilli()))
 	obj.Id = PtrTo(obj.GetTableReference().GetProjectId() + ":" + obj.GetTableReference().GetTableId())
 	obj.Kind = PtrTo("bigquery#table")
 	if obj.Location == nil {
@@ -83,30 +82,10 @@ func (s *tablesServer) InsertTable(ctx context.Context, req *pb.InsertTableReque
 	if obj.Type == nil {
 		obj.Type = PtrTo("DEFAULT")
 	}
-	if len(obj.Access) == 0 {
-		obj.Access = []*pb.TableAccess{
-			{
-				Role:         PtrTo("WRITER"),
-				SpecialGroup: PtrTo("projectWriters"),
-			},
-			{
-				Role:         PtrTo("OWNER"),
-				SpecialGroup: PtrTo("projectOwners"),
-			},
-			{
-				Role:        PtrTo("OWNER"),
-				UserByEmail: PtrTo("me@example.com"),
-			},
-			{
-				Role:         PtrTo("READER"),
-				SpecialGroup: PtrTo("projectReaders"),
-			},
-		}
-	}
 
 	obj.SelfLink = PtrTo("https://bigquery.googleapis.com/bigquery/v2/" + name.String())
 
-	sortAccess(obj)
+	//sortAccess(obj)
 
 	obj.Etag = PtrTo(computeEtag(obj))
 
@@ -117,58 +96,8 @@ func (s *tablesServer) InsertTable(ctx context.Context, req *pb.InsertTableReque
 	return obj, nil
 }
 
-func sortAccess(obj *pb.Table) {
-	// I haven't found any docs on the actual sort order,
-	// and it shouldn't actually matter, but it helps our golden testing.
-	// This order seems to keep our test data happy
-
-	getRoleKey := func(a *pb.TableAccess) string {
-		roleKey := a.GetRole()
-		switch roleKey {
-		case "WRITER":
-			roleKey = "roles/bigquery.dataEditor"
-		case "OWNER":
-			roleKey = "roles/bigquery.dataOwner"
-		case "READER":
-			roleKey = "roles/bigquery.dataViewer"
-		}
-		return roleKey
-	}
-
-	sort.SliceStable(obj.Access, func(i, j int) bool {
-		l := obj.Access[i]
-		r := obj.Access[j]
-
-		if lv, rv := getRoleKey(l), getRoleKey(r); lv != rv {
-			return lv < rv
-		}
-
-		if lv, rv := l.GetGroupByEmail(), r.GetGroupByEmail(); lv != rv {
-			return lv < rv
-		}
-
-		if lv, rv := l.GetUserByEmail(), r.GetUserByEmail(); lv != rv {
-			return lv < rv
-		}
-
-		if lv, rv := l.GetDomain(), r.GetDomain(); lv != rv {
-			return lv < rv
-		}
-
-		if lv, rv := l.GetSpecialGroup(), r.GetSpecialGroup(); lv != rv {
-			return lv < rv
-		}
-
-		if lv, rv := l.GetIamMember(), r.GetIamMember(); lv != rv {
-			return lv < rv
-		}
-
-		return false
-	})
-}
-
 func (s *tablesServer) UpdateTable(ctx context.Context, req *pb.UpdateTableRequest) (*pb.Table, error) {
-	name, err := s.buildTableName(req.GetProjectId(), req.GetTableId())
+	name, err := s.buildTableName(req.GetProjectId(), req.GetDatasetId(), req.GetTableId())
 	if err != nil {
 		return nil, err
 	}
@@ -186,14 +115,14 @@ func (s *tablesServer) UpdateTable(ctx context.Context, req *pb.UpdateTableReque
 	updated.TableReference = existing.TableReference
 
 	updated.CreationTime = existing.CreationTime
-	updated.LastModifiedTime = PtrTo(now.UnixMilli())
+	updated.LastModifiedTime = PtrTo(uint64(now.UnixMilli()))
 	updated.Id = PtrTo(existing.GetTableReference().GetProjectId() + ":" + existing.GetTableReference().GetTableId())
 	updated.Kind = PtrTo("bigquery#Table")
 	updated.Location = existing.Location
 	updated.Type = existing.Type
 	updated.SelfLink = PtrTo("https://bigquery.googleapis.com/bigquery/v2/" + name.String())
 
-	sortAccess(updated)
+	//sortAccess(updated)
 
 	updated.Etag = PtrTo(computeEtag(updated))
 
@@ -205,7 +134,7 @@ func (s *tablesServer) UpdateTable(ctx context.Context, req *pb.UpdateTableReque
 }
 
 func (s *tablesServer) DeleteTable(ctx context.Context, req *pb.DeleteTableRequest) (*empty.Empty, error) {
-	name, err := s.buildTableName(req.GetProjectId(), req.GetTableId())
+	name, err := s.buildTableName(req.GetProjectId(), req.GetDatasetId(), req.GetTableId())
 	if err != nil {
 		return nil, err
 	}
@@ -224,26 +153,27 @@ func (s *tablesServer) DeleteTable(ctx context.Context, req *pb.DeleteTableReque
 
 type tableName struct {
 	Project   *projects.ProjectData
-	TableID string
+	DatasetID string
+	TableID   string
 }
 
 func (n *tableName) String() string {
-	return "projects/" + n.Project.ID + "/tables/" + n.TableID
+	return "projects/" + n.Project.ID + "/datasets/" + n.DatasetID + "/tables/" + n.TableID
 }
 
 // parseTableName parses a string into a tableName.
-// The expected form is projects/<projectID>/tables/<TableID>
+// The expected form is projects/<projectID>/datasets/<DatasetID>/tables/<TableID> --> TODO
 func (s *MockService) parseTableName(name string) (*tableName, error) {
 	tokens := strings.Split(name, "/")
 
-	if len(tokens) == 4 && tokens[0] == "projects" && tokens[2] == "tables" {
-		return s.buildTableName(tokens[1], tokens[3])
+	if len(tokens) == 6 && tokens[0] == "projects" && tokens[2] == "datasets" && tokens[4] == "tables" {
+		return s.buildTableName(tokens[1], tokens[3], tokens[5])
 	} else {
 		return nil, status.Errorf(codes.InvalidArgument, "name %q is not valid", name)
 	}
 }
 
-func (s *MockService) buildTableName(projectName string, tableID string) (*tableName, error) {
+func (s *MockService) buildTableName(projectName string, datasetID string, tableID string) (*tableName, error) {
 	project, err := s.Projects.GetProjectByID(projectName)
 	if err != nil {
 		return nil, err
@@ -251,7 +181,8 @@ func (s *MockService) buildTableName(projectName string, tableID string) (*table
 
 	name := &tableName{
 		Project:   project,
-		TableID: tableID,
+		DatasetID: datasetID,
+		TableID:   tableID,
 	}
 
 	return name, nil
